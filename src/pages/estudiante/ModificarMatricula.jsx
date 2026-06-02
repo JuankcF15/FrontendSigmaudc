@@ -22,6 +22,15 @@ const ModificarMatricula = () => {
   const [solicitudPendiente, setSolicitudPendiente] = useState(null);
   const [historialSolicitudes, setHistorialSolicitudes] = useState([]);
   const [enviandoSolicitud, setEnviandoSolicitud] = useState(false);
+  const [asignaturasPage, setAsignaturasPage] = useState(1);
+  const [paginacionAsignaturas, setPaginacionAsignaturas] = useState({
+    page: 1,
+    page_size: 25,
+    total_items: 0,
+    total_pages: 0,
+    has_next: false,
+    has_prev: false,
+  });
 
   // Mostrar/ocultar horario y ocultar horas vacías
   const [showHorario, setShowHorario] = useState(true);
@@ -74,7 +83,23 @@ const ModificarMatricula = () => {
   // Horas del día (7am - 10pm)
   const horas = Array.from({ length: 16 }, (_, i) => 7 + i);
 
-  const normalizeAsignaturasConCupo = (asignaturasRaw = []) => {
+  const hayCruceConMateriasMatriculadas = (horariosGrupo = [], materiasActuales = []) => {
+    for (const materia of materiasActuales) {
+      for (const horarioMat of materia.horarios || []) {
+        for (const horarioNuevo of horariosGrupo || []) {
+          if (
+            horarioMat.dia === horarioNuevo.dia &&
+            haySolapamiento(horarioMat.hora_inicio, horarioMat.hora_fin, horarioNuevo.hora_inicio, horarioNuevo.hora_fin)
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+
+  const normalizeAsignaturasConCupo = (asignaturasRaw = [], materiasActuales = []) => {
     return (asignaturasRaw || []).map((asignatura) => {
       const gruposConCupo = (asignatura.grupos || [])
         .map((grupo) => {
@@ -86,7 +111,8 @@ const ModificarMatricula = () => {
             cupo_disponible: cupoDisponible,
           };
         })
-        .filter((grupo) => grupo.cupo_disponible > 0);
+        .filter((grupo) => grupo.cupo_disponible > 0)
+        .filter((grupo) => !hayCruceConMateriasMatriculadas(grupo.horarios || [], materiasActuales));
 
       return {
         ...asignatura,
@@ -117,7 +143,38 @@ const ModificarMatricula = () => {
 
   useEffect(() => {
     validarYcargar();
-  }, []);
+  }, [asignaturasPage]);
+
+  const cargarDatosModificaciones = async (page = 1) => {
+    const datos = await matriculaService.getModificacionesData({
+      materias_page: 1,
+      materias_page_size: 100,
+      asignaturas_page: page,
+      asignaturas_page_size: 25,
+    });
+    setMateriasMatriculadas(datos.materias_matriculadas || []);
+    const materiasActuales = datos.materias_matriculadas || [];
+    const ofertaNormalizada = normalizeAsignaturasConCupo(datos.asignaturas_disponibles || [], materiasActuales);
+    setAsignaturas(ofertaNormalizada);
+    setPaginacionAsignaturas(
+      datos.paginacion_asignaturas || {
+        page: page,
+        page_size: 25,
+        total_items: ofertaNormalizada.length,
+        total_pages: 1,
+        has_next: false,
+        has_prev: page > 1,
+      }
+    );
+    reconciliarSeleccionConOferta(ofertaNormalizada);
+    setResumen({
+      periodo: datos.periodo,
+      creditos: datos.creditos,
+      estadoEstudiante: datos.estado_estudiante,
+    });
+    actualizarHorarioDesdeMatriculadas(datos.materias_matriculadas || []);
+    return datos;
+  };
 
   useEffect(() => {
     const unsubscribe = matriculaService.subscribeModificacionesEvents({
@@ -127,17 +184,7 @@ const ModificarMatricula = () => {
         }
         await cargarSolicitudes();
         try {
-          const datos = await matriculaService.getModificacionesData();
-          setMateriasMatriculadas(datos.materias_matriculadas || []);
-          const ofertaNormalizada = normalizeAsignaturasConCupo(datos.asignaturas_disponibles || []);
-          setAsignaturas(ofertaNormalizada);
-          reconciliarSeleccionConOferta(ofertaNormalizada);
-          setResumen({
-            periodo: datos.periodo,
-            creditos: datos.creditos,
-            estadoEstudiante: datos.estado_estudiante,
-          });
-          actualizarHorarioDesdeMatriculadas(datos.materias_matriculadas || []);
+          await cargarDatosModificaciones(asignaturasPage);
         } catch (error) {
           // Silenciar para no interrumpir la UX si el stream notifica un cambio no aplicable.
           console.log("No se pudo refrescar datos de modificaciones tras evento:", error?.message || error);
@@ -147,6 +194,13 @@ const ModificarMatricula = () => {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!validacion?.puedeModificar) return;
+    cargarDatosModificaciones(asignaturasPage).catch((error) => {
+      console.log("No se pudo cambiar de página de asignaturas:", error?.message || error);
+    });
+  }, [asignaturasPage]);
 
   const validarYcargar = async () => {
     try {
@@ -169,7 +223,7 @@ const ModificarMatricula = () => {
       setValidacion({ puedeModificar: true });
 
       try {
-        const datos = await matriculaService.getModificacionesData();
+        const datos = await cargarDatosModificaciones(asignaturasPage);
         
         if (datos.error) {
           setValidacion({
@@ -180,18 +234,6 @@ const ModificarMatricula = () => {
           return;
         }
         
-        setMateriasMatriculadas(datos.materias_matriculadas || []);
-        const ofertaNormalizada = normalizeAsignaturasConCupo(datos.asignaturas_disponibles || []);
-        setAsignaturas(ofertaNormalizada);
-        reconciliarSeleccionConOferta(ofertaNormalizada);
-        setResumen({
-          periodo: datos.periodo,
-          creditos: datos.creditos,
-          estadoEstudiante: datos.estado_estudiante,
-        });
-        
-        actualizarHorarioDesdeMatriculadas(datos.materias_matriculadas || []);
-
         // Cargar solicitudes del estudiante
         await cargarSolicitudes();
 
@@ -980,6 +1022,27 @@ const ModificarMatricula = () => {
             </div>
 
             <h2 style={{ marginTop: '2rem' }}>Asignaturas Disponibles</h2>
+            {paginacionAsignaturas.total_pages > 1 && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                <button
+                  className="btn-retirar"
+                  onClick={() => setAsignaturasPage((prev) => Math.max(prev - 1, 1))}
+                  disabled={!paginacionAsignaturas.has_prev}
+                >
+                  Anterior
+                </button>
+                <span>
+                  Página {paginacionAsignaturas.page} de {paginacionAsignaturas.total_pages}
+                </span>
+                <button
+                  className="btn-retirar"
+                  onClick={() => setAsignaturasPage((prev) => prev + 1)}
+                  disabled={!paginacionAsignaturas.has_next}
+                >
+                  Siguiente
+                </button>
+              </div>
+            )}
             <div className="asignaturas-list">
               {asignaturas.length === 0 ? (
                 <div className="asignaturas-empty">

@@ -71,14 +71,14 @@ export const matriculaService = {
   },
 
   // Obtener datos de modificaciones (materias matriculadas y disponibles)
-  async getModificacionesData() {
-    const response = await api.get('/api/matricula/modificaciones');
+  async getModificacionesData(params = {}) {
+    const response = await api.get('/api/matricula/modificaciones', { params });
     return response.data;
   },
 
   // Jefatura: obtener asignaturas disponibles para modificaciones para un estudiante específico
-  async getAsignaturasDisponiblesForEstudiante(estudianteId) {
-    const response = await api.get(`/api/modificaciones/estudiante/${estudianteId}/disponibles`);
+  async getAsignaturasDisponiblesForEstudiante(estudianteId, params = {}) {
+    const response = await api.get(`/api/modificaciones/estudiante/${estudianteId}/disponibles`, { params });
     return response.data;
   },
 

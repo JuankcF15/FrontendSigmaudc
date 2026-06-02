@@ -27,8 +27,8 @@ const documentosService = {
   },
 
   // Obtener documentos por programa (para jefatura)
-  async getDocumentosPorPrograma() {
-    const response = await api.get('/api/documentos/programa');
+  async getDocumentosPorPrograma(params = {}) {
+    const response = await api.get('/api/documentos/programa', { params });
     return response.data;
   },
 

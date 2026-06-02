@@ -75,7 +75,23 @@ const InscribirAsignaturas = () => {
   // Horas del día (7am - 10pm)
   const horas = Array.from({ length: 16 }, (_, i) => 7 + i);
 
-  const normalizeAsignaturasConCupo = (asignaturasRaw = []) => {
+  const hayCruceConHorarioActual = (horariosGrupo = [], materiasActuales = []) => {
+    for (const materia of materiasActuales) {
+      for (const horarioMat of materia.horarios || []) {
+        for (const horarioNuevo of horariosGrupo || []) {
+          if (
+            horarioMat.dia === horarioNuevo.dia &&
+            haySolapamiento(horarioMat.hora_inicio, horarioMat.hora_fin, horarioNuevo.hora_inicio, horarioNuevo.hora_fin)
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+
+  const normalizeAsignaturasConCupo = (asignaturasRaw = [], materiasActuales = []) => {
     return (asignaturasRaw || []).map((asignatura) => {
       const gruposConCupo = (asignatura.grupos || [])
         .map((grupo) => {
@@ -87,7 +103,8 @@ const InscribirAsignaturas = () => {
             cupo_disponible: cupoDisponible,
           };
         })
-        .filter((grupo) => grupo.cupo_disponible > 0);
+        .filter((grupo) => grupo.cupo_disponible > 0)
+        .filter((grupo) => !hayCruceConHorarioActual(grupo.horarios || [], materiasActuales));
 
       return {
         ...asignatura,
@@ -111,7 +128,7 @@ const InscribirAsignaturas = () => {
           const payload = Array.isArray(asignaturasData)
             ? { asignaturas: asignaturasData }
             : asignaturasData || {};
-          const nuevasAsignaturas = normalizeAsignaturasConCupo(payload.asignaturas || []);
+          const nuevasAsignaturas = normalizeAsignaturasConCupo(payload.asignaturas || [], materiasMatriculadas);
           setAsignaturas(nuevasAsignaturas);
           setMensajes(payload.mensajes || []);
           if (payload.periodo || payload.creditos || payload.estado_estudiante) {
@@ -146,7 +163,7 @@ const InscribirAsignaturas = () => {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [materiasMatriculadas]);
 
   const validarYcargar = async () => {
     try {
@@ -170,11 +187,45 @@ const InscribirAsignaturas = () => {
       setValidacion({ puedeInscribir: true });
 
       try {
+        let materiasActuales = [];
+        try {
+          const horarioActual = await matriculaService.getHorarioActual();
+          if (horarioActual?.clases && horarioActual.clases.length > 0) {
+            const gruposUnicos = {};
+            horarioActual.clases.forEach((clase) => {
+              if (!gruposUnicos[clase.grupo_id]) {
+                gruposUnicos[clase.grupo_id] = {
+                  grupoId: clase.grupo_id,
+                  asignatura: clase.asignatura_nombre,
+                  codigo: clase.asignatura_codigo,
+                  grupoCodigo: clase.grupo_codigo,
+                  docente: clase.docente,
+                  horarios: [],
+                  esMatriculada: true,
+                };
+              }
+              gruposUnicos[clase.grupo_id].horarios.push({
+                dia: clase.dia,
+                hora_inicio: clase.hora_inicio,
+                hora_fin: clase.hora_fin,
+                salon: clase.salon,
+              });
+            });
+            materiasActuales = Object.values(gruposUnicos);
+            setMateriasMatriculadas(materiasActuales);
+          } else {
+            setMateriasMatriculadas([]);
+          }
+        } catch (err) {
+          console.warn("No se pudieron cargar las materias matriculadas:", err);
+          setMateriasMatriculadas([]);
+        }
+
         const asignaturasData = await matriculaService.getAsignaturasDisponibles();
         const payload = Array.isArray(asignaturasData)
           ? { asignaturas: asignaturasData }
           : asignaturasData || {};
-        const nuevasAsignaturas = normalizeAsignaturasConCupo(payload.asignaturas || []);
+        const nuevasAsignaturas = normalizeAsignaturasConCupo(payload.asignaturas || [], materiasActuales);
         setAsignaturas(nuevasAsignaturas);
         const obligatoriosPreselected = new Set();
         let creditosIniciales = 0;
@@ -195,37 +246,6 @@ const InscribirAsignaturas = () => {
             estadoEstudiante: payload.estado_estudiante,
             obligatoriasSinGrupo: payload.obligatorias_sin_grupo || [],
           });
-        }
-
-        // Cargar materias ya matriculadas para mostrar en el horario
-        try {
-          const horarioActual = await matriculaService.getHorarioActual();
-          if (horarioActual?.clases && horarioActual.clases.length > 0) {
-            // Agrupar por grupo_id para evitar duplicados
-            const gruposUnicos = {};
-            horarioActual.clases.forEach((clase) => {
-              if (!gruposUnicos[clase.grupo_id]) {
-                gruposUnicos[clase.grupo_id] = {
-                  grupoId: clase.grupo_id,
-                  asignatura: clase.asignatura_nombre,
-                  codigo: clase.asignatura_codigo,
-                  grupoCodigo: clase.grupo_codigo,
-                  docente: clase.docente,
-                  horarios: [],
-                  esMatriculada: true, // Marcar como ya matriculada
-                };
-              }
-              gruposUnicos[clase.grupo_id].horarios.push({
-                dia: clase.dia,
-                hora_inicio: clase.hora_inicio,
-                hora_fin: clase.hora_fin,
-                salon: clase.salon,
-              });
-            });
-            setMateriasMatriculadas(Object.values(gruposUnicos));
-          }
-        } catch (err) {
-          console.warn("No se pudieron cargar las materias matriculadas:", err);
         }
 
       } catch (error) {

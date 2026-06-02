@@ -18,16 +18,51 @@ const VerificarDocumentos = () => {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [filtroEstado, setFiltroEstado] = useState("todos"); // "todos", "pendiente", "aprobado", "rechazado"
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    page_size: 25,
+    total_items: 0,
+    total_pages: 0,
+    has_next: false,
+    has_prev: false,
+  });
 
   useEffect(() => {
     loadDocumentos();
-  }, []);
+  }, [filtroEstado, page]);
 
   const loadDocumentos = async () => {
     try {
       setLoading(true);
-      const response = await documentosService.getDocumentosPorPrograma();
-      setDocumentos(response || []);
+      const estado = filtroEstado === "todos" ? "" : filtroEstado;
+      const response = await documentosService.getDocumentosPorPrograma({
+        page,
+        page_size: 25,
+        estado: estado || undefined,
+      });
+
+      if (Array.isArray(response)) {
+        setDocumentos(response);
+        setPagination({
+          page: 1,
+          page_size: response.length,
+          total_items: response.length,
+          total_pages: 1,
+          has_next: false,
+          has_prev: false,
+        });
+      } else {
+        setDocumentos(response?.items || []);
+        setPagination(response?.pagination || {
+          page: 1,
+          page_size: 25,
+          total_items: 0,
+          total_pages: 0,
+          has_next: false,
+          has_prev: false,
+        });
+      }
       setError(null);
     } catch (err) {
       console.error("Error loading documentos:", err);
@@ -61,10 +96,7 @@ const VerificarDocumentos = () => {
     }
   };
 
-  const documentosFiltrados = documentos.filter((doc) => {
-    if (filtroEstado === "todos") return true;
-    return doc.estado === filtroEstado;
-  });
+  const documentosFiltrados = documentos;
 
   // Agrupar documentos por estudiante
   const documentosPorEstudiante = {};
@@ -119,7 +151,10 @@ const VerificarDocumentos = () => {
           <select
             className="filtro-select"
             value={filtroEstado}
-            onChange={(e) => setFiltroEstado(e.target.value)}
+            onChange={(e) => {
+              setFiltroEstado(e.target.value);
+              setPage(1);
+            }}
           >
             <option value="todos">Todos</option>
             <option value="pendiente">Pendientes</option>
@@ -150,36 +185,59 @@ const VerificarDocumentos = () => {
           <p>No hay documentos para mostrar</p>
         </div>
       ) : (
-        <div className="documentos-grid">
-          {Object.values(documentosPorEstudiante).map((grupo, idx) => (
-            <div key={idx} className="estudiante-card">
-              <div className="estudiante-header">
-                <div className="estudiante-info">
-                  <FaUser />
-                  <div>
-                    <h3>
-                      {grupo.estudiante.nombre} {grupo.estudiante.apellido}
-                    </h3>
-                    <p className="estudiante-codigo">
-                      Código: {grupo.estudiante.codigo}
-                    </p>
+        <>
+          <div className="documentos-grid">
+            {Object.values(documentosPorEstudiante).map((grupo, idx) => (
+              <div key={idx} className="estudiante-card">
+                <div className="estudiante-header">
+                  <div className="estudiante-info">
+                    <FaUser />
+                    <div>
+                      <h3>
+                        {grupo.estudiante.nombre} {grupo.estudiante.apellido}
+                      </h3>
+                      <p className="estudiante-codigo">
+                        Código: {grupo.estudiante.codigo}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="documentos-list">
-                {grupo.documentos.map((doc) => (
-                  <DocumentoCard
-                    key={doc.id}
-                    documento={doc}
-                    onRevisar={handleRevisar}
-                    revisando={revisando[doc.id] || false}
-                  />
-                ))}
+                <div className="documentos-list">
+                  {grupo.documentos.map((doc) => (
+                    <DocumentoCard
+                      key={doc.id}
+                      documento={doc}
+                      onRevisar={handleRevisar}
+                      revisando={revisando[doc.id] || false}
+                    />
+                  ))}
+                </div>
               </div>
+            ))}
+          </div>
+          {pagination.total_pages > 1 && (
+            <div style={{ display: "flex", justifyContent: "center", gap: "0.75rem", marginTop: "1.25rem" }}>
+              <button
+                className="btn-review"
+                onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+                disabled={!pagination.has_prev || loading}
+              >
+                Anterior
+              </button>
+              <span style={{ alignSelf: "center" }}>
+                Página {pagination.page} de {pagination.total_pages}
+              </span>
+              <button
+                className="btn-review"
+                onClick={() => setPage((prev) => prev + 1)}
+                disabled={!pagination.has_next || loading}
+              >
+                Siguiente
+              </button>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );
