@@ -82,7 +82,7 @@ const Login = () => {
 
       // Si requiere configuración de contraseña
       if (response.requiresPasswordSetup) {
-        navigate("/set-password", { state: { userId: response.userId, codigo: codigo } });
+        navigate("/set-password", { state: { userId: response.userId, codigo: codigo }, replace: true });
         return;
       }
 
@@ -101,7 +101,7 @@ const Login = () => {
 
         // Redirigir después de mostrar éxito
         setTimeout(() => {
-          navigate("/");
+          navigate("/", { replace: true });
         }, 800);
       } else {
         // Error del servidor (sin token y sin requiresPasswordSetup)

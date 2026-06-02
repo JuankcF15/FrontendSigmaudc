@@ -29,6 +29,10 @@ import DatosJefe from "./pages/jefe/DatosJefe";
 import PlanDeEstudio from "./pages/jefe/PlanDeEstudio";
 import { authService } from "./services/auth";
 import ValidarSolicitudes from "./pages/jefe/ValidarSolicitudes";
+import "./App.css";
+
+const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutos
+const WARNING_BEFORE_MS = 60 * 1000; // Avisar 1 minuto antes
 
 // Botón hamburguesa para móviles
 const MobileMenuButton = ({ userRole, onToggle }) => {
@@ -54,6 +58,15 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
+// Rutas públicas restringidas: si ya hay sesión, redirige al home.
+const PublicOnlyRoute = ({ children }) => {
+  const isAuthenticated = authService.isAuthenticated();
+  if (isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+};
+
 // Componente principal de la aplicación
 function AppContent() {
   const [activePage, setActivePage] = useState("home");
@@ -62,6 +75,13 @@ function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const sidebarRef = React.useRef(null);
+  const logoutTimerRef = React.useRef(null);
+  const warningTimerRef = React.useRef(null);
+  const countdownIntervalRef = React.useRef(null);
+  const logoutDeadlineRef = React.useRef(null);
+  const [showInactivityWarning, setShowInactivityWarning] = useState(false);
+  const [warningSecondsLeft, setWarningSecondsLeft] = useState(60);
+  const [showSessionExpiredNotice, setShowSessionExpiredNotice] = useState(false);
 
   // Cargar rol del usuario (al montar y cuando cambia la ruta)
   useEffect(() => {
@@ -100,6 +120,138 @@ function AppContent() {
     loadUserRole();
   }, [location.pathname]);
 
+  // Cierre de sesión por inactividad global.
+  useEffect(() => {
+    const clearTimers = () => {
+      if (logoutTimerRef.current) {
+        window.clearTimeout(logoutTimerRef.current);
+        logoutTimerRef.current = null;
+      }
+      if (warningTimerRef.current) {
+        window.clearTimeout(warningTimerRef.current);
+        warningTimerRef.current = null;
+      }
+      if (countdownIntervalRef.current) {
+        window.clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      logoutDeadlineRef.current = null;
+    };
+
+    const closeWarningModal = () => {
+      setShowInactivityWarning(false);
+      setWarningSecondsLeft(60);
+      if (countdownIntervalRef.current) {
+        window.clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+
+    const forceLogout = (showNotice = true) => {
+      if (!authService.isAuthenticated()) return;
+      closeWarningModal();
+      authService.logout();
+      setUserRole(null);
+      if (showNotice) {
+        setShowSessionExpiredNotice(true);
+      }
+      navigate("/login", { replace: true });
+    };
+
+    const startWarningCountdown = () => {
+      if (!logoutDeadlineRef.current) return;
+      closeWarningModal();
+      setShowInactivityWarning(true);
+      const updateCountdown = () => {
+        if (!logoutDeadlineRef.current) return;
+        const remainingMs = Math.max(logoutDeadlineRef.current - Date.now(), 0);
+        setWarningSecondsLeft(Math.ceil(remainingMs / 1000));
+      };
+      updateCountdown();
+      countdownIntervalRef.current = window.setInterval(updateCountdown, 1000);
+    };
+
+    const scheduleFromNow = () => {
+      if (!authService.isAuthenticated()) {
+        clearTimers();
+        closeWarningModal();
+        return;
+      }
+
+      authService.touchActivity();
+      const now = Date.now();
+      logoutDeadlineRef.current = now + INACTIVITY_TIMEOUT_MS;
+      clearTimers();
+      closeWarningModal();
+
+      warningTimerRef.current = window.setTimeout(
+        startWarningCountdown,
+        INACTIVITY_TIMEOUT_MS - WARNING_BEFORE_MS
+      );
+      logoutTimerRef.current = window.setTimeout(() => forceLogout(true), INACTIVITY_TIMEOUT_MS);
+    };
+
+    const scheduleFromLastActivity = () => {
+      if (!authService.isAuthenticated()) {
+        clearTimers();
+        closeWarningModal();
+        return;
+      }
+
+      const lastActivity = authService.getLastActivity();
+      const elapsed = lastActivity ? Date.now() - lastActivity : 0;
+      const remaining = INACTIVITY_TIMEOUT_MS - elapsed;
+
+      if (remaining <= 0) {
+        forceLogout(true);
+        return;
+      }
+
+      logoutDeadlineRef.current = Date.now() + remaining;
+      clearTimers();
+      closeWarningModal();
+
+      if (remaining <= WARNING_BEFORE_MS) {
+        startWarningCountdown();
+      } else {
+        warningTimerRef.current = window.setTimeout(
+          startWarningCountdown,
+          remaining - WARNING_BEFORE_MS
+        );
+      }
+      logoutTimerRef.current = window.setTimeout(() => forceLogout(true), remaining);
+    };
+
+    const activityEvents = ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "click"];
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, scheduleFromNow, { passive: true });
+    });
+
+    const onStorage = (event) => {
+      if (event.key === "token" && !event.newValue) {
+        clearTimers();
+        closeWarningModal();
+        setUserRole(null);
+        navigate("/login", { replace: true });
+      }
+      if (event.key === "lastActivityAt" && authService.isAuthenticated()) {
+        scheduleFromLastActivity();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+
+    scheduleFromLastActivity();
+
+    return () => {
+      clearTimers();
+      closeWarningModal();
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, scheduleFromNow);
+      });
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [navigate, location.pathname]);
+
   // Sincronizar activePage con la ruta actual (agregar la nueva ruta)
   React.useEffect(() => {
     const path = location.pathname;
@@ -132,9 +284,44 @@ function AppContent() {
     }
   }, [location]);
 
+  // Hardening frente a bfcache (back/forward cache):
+  // cuando la página vuelve del historial, revalida sesión y ruta pública/privada.
+  useEffect(() => {
+    const publicPaths = new Set(["/login", "/set-password"]);
+
+    const enforceRouteBySession = () => {
+      const isAuthenticated = authService.isAuthenticated();
+      const isPublicPath = publicPaths.has(location.pathname);
+
+      if (isAuthenticated && isPublicPath) {
+        navigate("/", { replace: true });
+        return;
+      }
+      if (!isAuthenticated && !isPublicPath) {
+        navigate("/login", { replace: true });
+      }
+    };
+
+    const onPageShow = () => {
+      enforceRouteBySession();
+    };
+
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [navigate, location.pathname]);
+
   const handleLogout = () => {
     authService.logout();
+    setShowInactivityWarning(false);
+    setShowSessionExpiredNotice(false);
     navigate('/login');
+  };
+
+  const handleStaySignedIn = () => {
+    setShowSessionExpiredNotice(false);
+    authService.touchActivity();
   };
 
   const handlePageChange = (page) => {
@@ -178,10 +365,25 @@ function AppContent() {
   };
 
   return (
+    <>
     <Routes>
       {/* Rutas públicas */}
-      <Route path="/login" element={<Login />} />
-      <Route path="/set-password" element={<SetPassword />} />
+      <Route
+        path="/login"
+        element={
+          <PublicOnlyRoute>
+            <Login />
+          </PublicOnlyRoute>
+        }
+      />
+      <Route
+        path="/set-password"
+        element={
+          <PublicOnlyRoute>
+            <SetPassword />
+          </PublicOnlyRoute>
+        }
+      />
 
       {/* Rutas protegidas */}
       <Route
@@ -288,6 +490,42 @@ function AppContent() {
         }
       />
     </Routes>
+    {showInactivityWarning && authService.isAuthenticated() && (
+      <div className="session-modal-overlay" role="presentation">
+        <div className="session-modal" role="dialog" aria-modal="true" aria-labelledby="session-warning-title">
+          <div className="session-modal-icon warning">!</div>
+          <h2 id="session-warning-title" className="session-modal-title">Tu sesion esta por expirar</h2>
+          <p className="session-modal-message">
+            Por seguridad, tu sesion se cerrara en <strong>{warningSecondsLeft}</strong> segundos por inactividad.
+          </p>
+          <p className="session-modal-message secondary">
+            Haz clic en "Seguir conectado" para mantener tu sesion activa.
+          </p>
+          <div className="session-modal-actions">
+            <button className="session-btn secondary" onClick={handleLogout}>Cerrar sesion ahora</button>
+            <button className="session-btn primary" onClick={handleStaySignedIn}>Seguir conectado</button>
+          </div>
+        </div>
+      </div>
+    )}
+    {showSessionExpiredNotice && !authService.isAuthenticated() && (
+      <div className="session-modal-overlay" role="presentation">
+        <div className="session-modal" role="dialog" aria-modal="true" aria-labelledby="session-expired-title">
+          <div className="session-modal-icon expired">i</div>
+          <h2 id="session-expired-title" className="session-modal-title">Sesion cerrada por inactividad</h2>
+          <p className="session-modal-message">
+            Tu sesion se cerro automaticamente despues de 10 minutos sin actividad.
+          </p>
+          <p className="session-modal-message secondary">
+            Inicia sesion nuevamente para continuar.
+          </p>
+          <div className="session-modal-actions center">
+            <button className="session-btn primary" onClick={() => setShowSessionExpiredNotice(false)}>Entendido</button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 

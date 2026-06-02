@@ -24,3 +24,115 @@ h1 {
   height: 56px;
 }
 
+.session-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.session-modal {
+  width: min(92vw, 460px);
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  padding: 1.5rem 1.25rem;
+  text-align: center;
+  animation: session-modal-in 180ms ease-out;
+}
+
+.session-modal-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 9999px;
+  margin: 0 auto 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+.session-modal-icon.warning {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.session-modal-icon.expired {
+  color: #1e3a8a;
+  background: #dbeafe;
+}
+
+.session-modal-title {
+  margin: 0 0 0.5rem;
+  color: #0f172a;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.session-modal-message {
+  margin: 0.35rem 0;
+  color: #334155;
+  line-height: 1.5;
+  font-size: 0.96rem;
+}
+
+.session-modal-message.secondary {
+  color: #475569;
+}
+
+.session-modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.session-modal-actions.center {
+  justify-content: center;
+}
+
+.session-btn {
+  border: 0;
+  border-radius: 10px;
+  padding: 0.6rem 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.session-btn:hover {
+  transform: translateY(-1px);
+}
+
+.session-btn:active {
+  transform: translateY(0);
+}
+
+.session-btn.primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.session-btn.secondary {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+@keyframes session-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+

@@ -29,7 +29,7 @@ const SetPassword = () => {
   useEffect(() => {
     // Si no hay userId o codigo, redirigir al login
     if (!userId || !codigo) {
-      navigate("/login");
+      navigate("/login", { replace: true });
     }
   }, [userId, codigo, navigate]);
 
@@ -116,7 +116,7 @@ const SetPassword = () => {
     setShowSuccessModal(false);
     // Redirigir al login después de cerrar el modal
     setTimeout(() => {
-      navigate("/login");
+      navigate("/login", { replace: true });
     }, 300);
   };
 
@@ -388,7 +388,7 @@ const SetPassword = () => {
           <button
             type="button"
             className="cancel-button"
-            onClick={() => navigate("/login")}
+            onClick={() => navigate("/login", { replace: true })}
             disabled={loading || success}
           >
             Cancelar

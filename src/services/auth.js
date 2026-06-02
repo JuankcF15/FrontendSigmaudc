@@ -3,6 +3,7 @@ import axios from 'axios';
 // La URL del API debe estar configurada en el archivo .env
 // Si no está configurada, mostrar error en desarrollo
 const API_URL = import.meta.env.VITE_API_URL;
+const LAST_ACTIVITY_KEY = 'lastActivityAt';
 
 if (!API_URL) {
   console.error('⚠️ ERROR: VITE_API_URL no está configurada en el archivo .env del frontend');
@@ -102,6 +103,7 @@ export const authService = {
   // Guardar token
   saveToken(token) {
     localStorage.setItem('token', token);
+    this.touchActivity();
   },
 
   // Obtener token
@@ -124,11 +126,22 @@ export const authService = {
   logout() {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem(LAST_ACTIVITY_KEY);
   },
 
   // Verificar si está autenticado
   isAuthenticated() {
     return !!this.getToken();
+  },
+
+  touchActivity() {
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+  },
+
+  getLastActivity() {
+    const raw = localStorage.getItem(LAST_ACTIVITY_KEY);
+    const parsed = raw ? Number(raw) : NaN;
+    return Number.isFinite(parsed) ? parsed : null;
   },
 };
 
