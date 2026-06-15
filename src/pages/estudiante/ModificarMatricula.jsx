@@ -171,6 +171,7 @@ const ModificarMatricula = () => {
       periodo: datos.periodo,
       creditos: datos.creditos,
       estadoEstudiante: datos.estado_estudiante,
+      semestreEstudiante: datos.semestre_estudiante,
     });
     actualizarHorarioDesdeMatriculadas(datos.materias_matriculadas || []);
     return datos;
@@ -363,6 +364,16 @@ const ModificarMatricula = () => {
     if (asignatura.estado === "cursada") {
       return;
     }
+
+    const semestreEstudiante = resumen?.semestreEstudiante ?? 0;
+    if (Number(asignatura.semestre) <= semestreEstudiante) {
+      openDialog(
+        "Semestre no permitido",
+        "En modificaciones solo puedes agregar asignaturas de semestres superiores al tuyo. Para materias de tu semestre o anteriores, usa la opción de retiro si ya están matriculadas."
+      );
+      return;
+    }
+
     const grupo = asignatura.grupos?.find((g) => g.id === grupoId);
     if (!grupo) return;
 
@@ -474,6 +485,21 @@ const ModificarMatricula = () => {
           creditos: materia.creditos,
         };
       }).filter(Boolean);
+
+      const semestreEstudiante = resumen?.semestreEstudiante ?? 0;
+      const asignaturaSemestreInvalida = gruposAgregarCompletos.find(
+        (grupo) => {
+          const asignatura = asignaturas.find((a) => a.id === grupo.asignatura_id);
+          return asignatura && Number(asignatura.semestre) <= semestreEstudiante;
+        }
+      );
+      if (asignaturaSemestreInvalida) {
+        openDialog(
+          "Semestre no permitido",
+          "En modificaciones solo puedes agregar asignaturas de semestres superiores al tuyo. Para materias de tu semestre o anteriores, usa la opción de retiro."
+        );
+        return;
+      }
       
       await matriculaService.crearSolicitudModificacion({
         grupos_agregar: gruposAgregarCompletos,
@@ -677,7 +703,7 @@ const ModificarMatricula = () => {
           </div>
           <div>
             <h1>Modificaciones Estudiantiles</h1>
-            <p>Gestiona tus materias: retira o agrega asignaturas</p>
+            <p>Gestiona tus materias: retira o agrega asignaturas de semestres superiores</p>
           </div>
         </div>
       </div>
