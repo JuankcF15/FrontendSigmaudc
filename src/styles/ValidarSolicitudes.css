@@ -404,6 +404,22 @@
     gap: 8px;
   }
 
+  .cambios-panel-titulo {
+    margin: 0 0 4px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--jefe-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  .historial-resumen {
+    margin: 0 0 24px 0;
+    font-size: 15px;
+    color: var(--jefe-text-secondary);
+    line-height: 1.45;
+  }
+
   .cambio-texto {
     margin: 0;
     font-size: 16px;

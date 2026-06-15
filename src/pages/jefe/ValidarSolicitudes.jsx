@@ -49,6 +49,9 @@ const etiquetaMateria = (g) => {
 
 const buildHorarioUnificado = (vistaPrevia) => {
   if (!vistaPrevia) return [];
+  if (vistaPrevia.es_historial) {
+    return buildHorarioHistorial(vistaPrevia);
+  }
   const retirarIds = new Set((vistaPrevia.materias_retiradas || []).map((m) => m.grupo_id));
   const entries = [];
 
@@ -68,6 +71,50 @@ const buildHorarioUnificado = (vistaPrevia) => {
   });
 
   return entries;
+};
+
+const buildHorarioHistorial = (vistaPrevia) => {
+  if (vistaPrevia.estado === "rechazada") {
+    return (vistaPrevia.matricula_actual || []).map((m) => materiaToEntry(m));
+  }
+
+  const agregarIds = new Set((vistaPrevia.materias_agregar || []).map((g) => g.grupo_id));
+  const entries = [];
+
+  (vistaPrevia.materias_retiradas || []).forEach((m) => {
+    entries.push({
+      ...materiaToEntry({
+        nombre: m.asignatura_nombre,
+        codigo: m.asignatura_codigo,
+        grupo_codigo: m.grupo_codigo,
+        horarios: m.horarios,
+      }),
+      cambio: "retirar",
+      color: COLOR_HORARIO.retirar,
+    });
+  });
+
+  (vistaPrevia.matricula_actual || []).forEach((m) => {
+    const fueAgregada = agregarIds.has(m.grupo_id);
+    entries.push({
+      ...materiaToEntry(m),
+      cambio: fueAgregada ? "agregar" : "mantener",
+      ...(fueAgregada ? { color: COLOR_HORARIO.agregar } : {}),
+    });
+  });
+
+  return entries;
+};
+
+const formatFecha = (fecha) => {
+  if (!fecha) return null;
+  return new Date(fecha).toLocaleDateString("es-ES", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 };
 
 const ValidarSolicitudes = () => {
@@ -320,6 +367,12 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
   }, [solicitud.id]);
 
   useEffect(() => {
+    setVistaPrevia(null);
+    setErrorPreview(null);
+    setObservacion("");
+  }, [solicitud.id, solicitud.estado]);
+
+  useEffect(() => {
     if (mostrarRevision && !vistaPrevia && !cargandoPreview && !errorPreview) {
       cargarVistaPrevia();
     }
@@ -384,6 +437,9 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
       ? `${est.nombre} ${est.apellido}`
       : [solicitud.estudiante_nombre, solicitud.estudiante_apellido].filter(Boolean).join(" ") || "Estudiante";
   const codigoEst = est?.codigo || solicitud.estudiante_codigo || `ID ${solicitud.estudiante_id}`;
+  const esHistorial = solicitud.estado !== "pendiente" || vistaPrevia?.es_historial;
+  const fechaRevision = vistaPrevia?.fecha_revision || solicitud.fecha_revision;
+  const observacionHistorial = vistaPrevia?.observacion || solicitud.observacion;
 
   return (
     <article className={`solicitud-card ${solicitud.estado}`}>
@@ -402,14 +458,14 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
         {getEstadoBadge()}
       </header>
 
-      {solicitud.estado === "rechazada" && solicitud.observacion && (
-        <p className="observacion-box">{solicitud.observacion}</p>
+      {solicitud.estado === "rechazada" && observacionHistorial && !mostrarRevision && (
+        <p className="observacion-box">{observacionHistorial}</p>
       )}
 
       {!mostrarRevision && (
         <footer className="solicitud-footer">
           <button type="button" className="btn-review" onClick={toggleRevision} disabled={procesando}>
-            {solicitud.estado === "pendiente" ? "Revisar solicitud" : "Ver detalle"}
+            {solicitud.estado === "pendiente" ? "Revisar solicitud" : "Ver historial"}
           </button>
         </footer>
       )}
@@ -433,6 +489,14 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
 
           {vistaPrevia && !cargandoPreview && (
             <>
+              {esHistorial && (
+                <p className="historial-resumen">
+                  {solicitud.estado === "aprobada"
+                    ? `Aprobada${fechaRevision ? ` el ${formatFecha(fechaRevision)}` : ""}.`
+                    : `Rechazada${fechaRevision ? ` el ${formatFecha(fechaRevision)}` : ""}. Los cambios no se aplicaron.`}
+                </p>
+              )}
+
               <section className="estudiante-panel" aria-label="Información del estudiante">
                 <dl className="estudiante-datos">
                   <div>
@@ -448,10 +512,12 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
                     </dd>
                   </div>
                   <div>
-                    <dt>Créditos</dt>
+                    <dt>{esHistorial ? "Créditos actuales" : "Créditos"}</dt>
                     <dd>
                       {creditos
-                        ? `${creditos.inscritos_actual} → ${creditos.inscritos_proyectado}`
+                        ? esHistorial
+                          ? `${creditos.inscritos_actual}`
+                          : `${creditos.inscritos_actual} → ${creditos.inscritos_proyectado}`
                         : "—"}
                     </dd>
                   </div>
@@ -473,7 +539,15 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
                   : gruposARetirar;
                 if (itemsAgregar.length === 0 && itemsRetirar.length === 0) return null;
                 return (
-                  <section className="cambios-panel" aria-label="Cambios solicitados">
+                  <section
+                    className="cambios-panel"
+                    aria-label={esHistorial ? "Historial de cambios" : "Cambios solicitados"}
+                  >
+                    {esHistorial && (
+                      <p className="cambios-panel-titulo">
+                        {solicitud.estado === "aprobada" ? "Cambios realizados" : "Cambios solicitados"}
+                      </p>
+                    )}
                     {itemsAgregar.map((g, i) => (
                       <p key={`a-${i}`} className="cambio-texto agregar">
                         + {etiquetaMateria(g)}
@@ -490,7 +564,14 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
                 );
               })()}
 
-              <section className="horario-panel" aria-label="Horario con cambios">
+              {esHistorial && solicitud.estado === "rechazada" && observacionHistorial && (
+                <p className="observacion-box">{observacionHistorial}</p>
+              )}
+
+              <section
+                className="horario-panel"
+                aria-label={esHistorial ? "Horario resultante" : "Horario con cambios"}
+              >
                 <div className="horario-grid-wrapper">
                   <HorarioGrid
                     entries={buildHorarioUnificado(vistaPrevia)}
