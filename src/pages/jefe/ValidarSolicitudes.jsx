@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from "react";
 import { matriculaService } from "../../services/matricula";
 import HorarioGrid from "../../components/common/HorarioGrid";
 import "../../styles/ValidarSolicitudes.css";
-import "../../styles/InscribirAsignaturas.css";
 import {
   FaCheckCircle,
   FaTimesCircle,
@@ -13,13 +12,16 @@ import {
   FaMinus,
   FaExclamationTriangle,
   FaClock,
-  FaExchangeAlt,
-  FaGraduationCap,
 } from "react-icons/fa";
 
 const DIAS_SEMANA = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO"];
 const HORAS = Array.from({ length: 14 }, (_, i) => 7 + i);
-const PALETA = ["#2563eb", "#16a34a", "#dc2626", "#9333ea", "#ea580c", "#0891b2", "#be185d", "#4f46e5"];
+
+const COLOR_HORARIO = {
+  agregar: "#34c759",
+  retirar: "#ff3b30",
+  mantener: "#c7c7cc",
+};
 
 const parseJsonArray = (val) => {
   if (Array.isArray(val)) return val;
@@ -33,30 +35,35 @@ const parseJsonArray = (val) => {
   return [];
 };
 
-const obtenerColorAsignatura = (codigo) => {
-  if (!codigo) return PALETA[0];
-  let hash = 0;
-  for (let i = 0; i < codigo.length; i++) {
-    hash = codigo.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return PALETA[Math.abs(hash) % PALETA.length];
-};
+const materiaToEntry = (m) => ({
+  asignatura: m.nombre,
+  codigo: m.codigo,
+  grupoCodigo: m.grupo_codigo,
+  docente: m.docente,
+  horarios: m.horarios || [],
+});
 
-const materiasAHorarioEntries = (materias) =>
-  (materias || []).map((m) => ({
-    asignatura: m.nombre,
-    codigo: m.codigo,
-    grupoCodigo: m.grupo_codigo,
-    docente: m.docente,
-    horarios: m.horarios || [],
-  }));
+const buildHorarioUnificado = (vistaPrevia) => {
+  if (!vistaPrevia) return [];
+  const retirarIds = new Set((vistaPrevia.materias_retiradas || []).map((m) => m.grupo_id));
+  const entries = [];
 
-const etiquetaComponente = (componente) => (componente === "laboratorio" ? "Lab" : "Teo");
+  (vistaPrevia.matricula_actual || []).forEach((m) => {
+    if (retirarIds.has(m.grupo_id)) {
+      entries.push({ ...materiaToEntry(m), cambio: "retirar", color: COLOR_HORARIO.retirar });
+    }
+  });
 
-const formatearHora = (hora) => {
-  if (!hora) return "";
-  const [hh, mm] = hora.split(":");
-  return `${hh}:${mm || "00"}`;
+  (vistaPrevia.matricula_proyectada || []).forEach((m) => {
+    const agregar = m.cambio === "agregar";
+    entries.push({
+      ...materiaToEntry(m),
+      cambio: agregar ? "agregar" : "mantener",
+      color: agregar ? COLOR_HORARIO.agregar : COLOR_HORARIO.mantener,
+    });
+  });
+
+  return entries;
 };
 
 const ValidarSolicitudes = () => {
@@ -322,7 +329,6 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
   const [vistaPrevia, setVistaPrevia] = useState(null);
   const [cargandoPreview, setCargandoPreview] = useState(false);
   const [errorPreview, setErrorPreview] = useState(null);
-  const [horarioTab, setHorarioTab] = useState("proyectado");
 
   const gruposAAgregar = parseJsonArray(solicitud.grupos_agregar);
   const gruposARetirar = parseJsonArray(solicitud.grupos_retirar);
@@ -411,21 +417,20 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
   };
 
   const creditos = vistaPrevia?.creditos;
-  const deltaCreditos = creditos?.delta ?? 0;
-  const deltaLabel =
-    deltaCreditos > 0 ? `+${deltaCreditos}` : deltaCreditos === 0 ? "0" : `${deltaCreditos}`;
+  const periodoLabel = vistaPrevia?.periodo
+    ? `${vistaPrevia.periodo.year}-${vistaPrevia.periodo.semestre}`
+    : null;
 
   return (
     <div className={`solicitud-card ${solicitud.estado}`}>
       <div className="solicitud-header">
         <div>
-          <h4>Solicitud de Modificación</h4>
+          <h4>Solicitud de modificación</h4>
           <p className="solicitud-fecha">
-            Enviada:{" "}
             {new Date(solicitud.fecha_solicitud).toLocaleDateString("es-ES", {
-              year: "numeric",
-              month: "long",
               day: "numeric",
+              month: "short",
+              year: "numeric",
               hour: "2-digit",
               minute: "2-digit",
             })}
@@ -434,22 +439,20 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
         {getEstadoBadge()}
       </div>
 
-      {/* Resumen rápido de cambios */}
-      <div className="solicitud-resumen-cambios">
-        {gruposAAgregar.length > 0 && (
-          <span className="resumen-chip agregar">
-            <FaPlus /> {gruposAAgregar.length} a agregar
-          </span>
-        )}
-        {gruposARetirar.length > 0 && (
-          <span className="resumen-chip retirar">
-            <FaMinus /> {gruposARetirar.length} a retirar
-          </span>
-        )}
-        {gruposAAgregar.length === 0 && gruposARetirar.length === 0 && (
-          <span className="resumen-chip vacio">Sin cambios registrados</span>
-        )}
-      </div>
+      {!mostrarRevision && (gruposAAgregar.length > 0 || gruposARetirar.length > 0) && (
+        <ul className="cambios-resumen">
+          {gruposAAgregar.map((g, i) => (
+            <li key={`a-${i}`} className="cambio-linea agregar">
+              <FaPlus /> {g.asignatura_codigo || g.asignatura_nombre} · Gr. {g.grupo_codigo}
+            </li>
+          ))}
+          {gruposARetirar.map((g, i) => (
+            <li key={`r-${i}`} className="cambio-linea retirar">
+              <FaMinus /> {g.asignatura_codigo || g.asignatura_nombre} · Gr. {g.grupo_codigo}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {solicitud.estado === "rechazada" && solicitud.observacion && (
         <div className="observacion-box">
@@ -464,7 +467,11 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
           onClick={toggleRevision}
           disabled={procesando}
         >
-          {mostrarRevision ? "Ocultar detalle" : solicitud.estado === "pendiente" ? "Revisar matrícula" : "Ver detalle"}
+          {mostrarRevision
+            ? "Cerrar"
+            : solicitud.estado === "pendiente"
+              ? "Revisar"
+              : "Ver detalle"}
         </button>
       </div>
 
@@ -473,7 +480,7 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
           {cargandoPreview && (
             <div className="preview-loading">
               <FaSpinner className="spinner-small" />
-              <span>Cargando matrícula y horarios...</span>
+              <span>Cargando vista previa…</span>
             </div>
           )}
 
@@ -481,7 +488,7 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
             <div className="alert-error preview-error">
               <FaExclamationTriangle />
               <p>{typeof errorPreview === "string" ? errorPreview : "Error al cargar vista previa"}</p>
-              <button className="btn-review btn-sm" onClick={cargarVistaPrevia}>
+              <button type="button" className="btn-link" onClick={cargarVistaPrevia}>
                 Reintentar
               </button>
             </div>
@@ -489,246 +496,80 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
 
           {vistaPrevia && !cargandoPreview && (
             <>
-              {/* Contexto del estudiante */}
-              <div className="preview-estudiante-bar">
-                <div className="preview-stat">
-                  <FaGraduationCap />
-                  <div>
-                    <span className="preview-stat-label">Semestre</span>
-                    <strong>{vistaPrevia.estudiante?.semestre ?? "—"}</strong>
-                  </div>
-                </div>
-                <div className="preview-stat">
-                  <span className="preview-stat-label">Estado</span>
-                  <strong>{vistaPrevia.estudiante?.estado ?? "—"}</strong>
-                </div>
-                <div className="preview-stat">
-                  <span className="preview-stat-label">Promedio</span>
-                  <strong>
-                    {vistaPrevia.estudiante?.promedio != null
-                      ? Number(vistaPrevia.estudiante.promedio).toFixed(2)
-                      : "—"}
-                  </strong>
-                </div>
-                <div className="preview-stat">
-                  <span className="preview-stat-label">Periodo</span>
-                  <strong>
-                    {vistaPrevia.periodo
-                      ? `${vistaPrevia.periodo.year}-${vistaPrevia.periodo.semestre}`
-                      : "—"}
-                  </strong>
-                </div>
-              </div>
+              <p className="preview-meta">
+                {[
+                  periodoLabel && `Periodo ${periodoLabel}`,
+                  vistaPrevia.estudiante?.semestre != null &&
+                    `Semestre ${vistaPrevia.estudiante.semestre}`,
+                  creditos &&
+                    `${creditos.inscritos_actual} → ${creditos.inscritos_proyectado} cr (máx. ${creditos.maximo})`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
 
-              {/* Créditos comparativos */}
-              {creditos && (
-                <div className="preview-creditos-card">
-                  <h5>
-                    <FaExchangeAlt /> Créditos
-                  </h5>
-                  <div className="creditos-comparacion">
-                    <div className="credito-col">
-                      <span className="credito-label">Máximo</span>
-                      <strong>{creditos.maximo}</strong>
-                    </div>
-                    <div className="credito-col">
-                      <span className="credito-label">Inscritos (actual)</span>
-                      <strong>{creditos.inscritos_actual}</strong>
-                    </div>
-                    <div className="credito-col destacado">
-                      <span className="credito-label">Si se aprueba</span>
-                      <strong>{creditos.inscritos_proyectado}</strong>
-                      <span className={`credito-delta ${deltaCreditos > 0 ? "positivo" : deltaCreditos < 0 ? "negativo" : ""}`}>
-                        {deltaLabel} cr
-                      </span>
-                    </div>
-                    <div className="credito-col">
-                      <span className="credito-label">Disponibles</span>
-                      <strong>{creditos.disponibles_proyectado}</strong>
-                    </div>
-                  </div>
-                  <div className="creditos-barra">
-                    <div
-                      className="creditos-barra-actual"
-                      style={{ width: `${Math.min((creditos.inscritos_actual / creditos.maximo) * 100, 100)}%` }}
-                    />
-                    <div
-                      className="creditos-barra-proyectado"
-                      style={{ width: `${Math.min((creditos.inscritos_proyectado / creditos.maximo) * 100, 100)}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Advertencias */}
               {vistaPrevia.advertencias?.length > 0 && (
-                <div className="preview-advertencias">
-                  <h5>
-                    <FaExclamationTriangle /> Advertencias ({vistaPrevia.advertencias.length})
-                  </h5>
-                  <ul>
-                    {vistaPrevia.advertencias.map((adv, i) => (
-                      <li key={i}>{adv}</li>
-                    ))}
-                  </ul>
+                <div className="preview-alerta">
+                  <FaExclamationTriangle />
+                  <p>{vistaPrevia.advertencias[0]}</p>
+                  {vistaPrevia.advertencias.length > 1 && (
+                    <details className="alerta-mas">
+                      <summary>{vistaPrevia.advertencias.length - 1} advertencia(s) más</summary>
+                      <ul>
+                        {vistaPrevia.advertencias.slice(1).map((adv, i) => (
+                          <li key={i}>{adv}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                 </div>
               )}
 
-              {vistaPrevia.advertencias?.length === 0 && solicitud.estado === "pendiente" && (
-                <div className="preview-ok">
-                  <FaCheckCircle />
-                  <span>Sin conflictos detectados: la matrícula proyectada cumple las reglas básicas.</span>
+              <div className="preview-horario-section">
+                <div className="horario-leyenda">
+                  <span><i className="leyenda-dot agregar" /> Agrega</span>
+                  <span><i className="leyenda-dot retirar" /> Retira</span>
+                  <span><i className="leyenda-dot mantener" /> Sin cambio</span>
                 </div>
-              )}
-
-              {/* Comparación de matrículas */}
-              <div className="preview-matriculas">
-                <div className="matricula-col">
-                  <h5>Matrícula actual ({vistaPrevia.matricula_actual?.length ?? 0})</h5>
-                  <div className="matricula-lista">
-                    {(vistaPrevia.matricula_actual || []).length === 0 ? (
-                      <p className="matricula-vacia">Sin materias matriculadas</p>
-                    ) : (
-                      vistaPrevia.matricula_actual.map((m) => (
-                        <div key={`actual-${m.grupo_id}`} className="matricula-fila">
-                          <div className="matricula-fila-header">
-                            <span className="matricula-codigo">{m.codigo}</span>
-                            <span className="matricula-creditos">{m.creditos} cr</span>
-                          </div>
-                          <p className="matricula-nombre">{m.nombre}</p>
-                          <p className="matricula-grupo">Grupo {m.grupo_codigo}</p>
-                          {(m.horarios || []).length > 0 && (
-                            <ul className="matricula-horarios-mini">
-                              {m.horarios.map((h, hi) => (
-                                <li key={hi}>
-                                  {h.dia?.substring(0, 3)} {formatearHora(h.hora_inicio)}–{formatearHora(h.hora_fin)}
-                                  {h.componente && (
-                                    <span className="comp-badge">{etiquetaComponente(h.componente)}</span>
-                                  )}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="matricula-col proyectada">
-                  <h5>
-                    Si se aprueba ({vistaPrevia.matricula_proyectada?.length ?? 0})
-                  </h5>
-                  <div className="matricula-lista">
-                    {(vistaPrevia.matricula_proyectada || []).length === 0 ? (
-                      <p className="matricula-vacia">Quedaría sin materias matriculadas</p>
-                    ) : (
-                      vistaPrevia.matricula_proyectada.map((m) => (
-                        <div
-                          key={`proy-${m.grupo_id}-${m.cambio}`}
-                          className={`matricula-fila ${m.cambio === "agregar" ? "nueva" : ""}`}
-                        >
-                          <div className="matricula-fila-header">
-                            <span className="matricula-codigo">{m.codigo}</span>
-                            <span className="matricula-creditos">{m.creditos} cr</span>
-                            {m.cambio === "agregar" && (
-                              <span className="cambio-badge agregar">Nueva</span>
-                            )}
-                          </div>
-                          <p className="matricula-nombre">{m.nombre}</p>
-                          <p className="matricula-grupo">
-                            Grupo {m.grupo_codigo}
-                            {m.docente && <span className="matricula-docente"> · {m.docente}</span>}
-                          </p>
-                          {(m.horarios || []).length > 0 && (
-                            <ul className="matricula-horarios-mini">
-                              {m.horarios.map((h, hi) => (
-                                <li key={hi}>
-                                  {h.dia?.substring(0, 3)} {formatearHora(h.hora_inicio)}–{formatearHora(h.hora_fin)}
-                                  {h.salon && <span className="salon-mini"> · {h.salon}</span>}
-                                  {h.componente && (
-                                    <span className="comp-badge">{etiquetaComponente(h.componente)}</span>
-                                  )}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Materias que se retiran */}
-              {(vistaPrevia.materias_retiradas || []).length > 0 && (
-                <div className="preview-retiradas">
-                  <h5>
-                    <FaMinus /> Se retiran ({vistaPrevia.materias_retiradas.length})
-                  </h5>
-                  <div className="retiradas-chips">
-                    {vistaPrevia.materias_retiradas.map((m, i) => (
-                      <span key={i} className="retirada-chip">
-                        {m.asignatura_codigo} · Grupo {m.grupo_codigo} · {m.creditos} cr
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Horario visual */}
-              <div className="preview-horario">
-                <div className="horario-tabs">
-                  <button
-                    type="button"
-                    className={horarioTab === "actual" ? "active" : ""}
-                    onClick={() => setHorarioTab("actual")}
-                  >
-                    Horario actual
-                  </button>
-                  <button
-                    type="button"
-                    className={horarioTab === "proyectado" ? "active" : ""}
-                    onClick={() => setHorarioTab("proyectado")}
-                  >
-                    Horario si se aprueba
-                  </button>
-                </div>
-                <div className="horario-grid-wrapper preview-horario-grid">
+                <div className="horario-grid-wrapper">
                   <HorarioGrid
-                    entries={
-                      horarioTab === "actual"
-                        ? materiasAHorarioEntries(vistaPrevia.matricula_actual)
-                        : materiasAHorarioEntries(vistaPrevia.matricula_proyectada)
-                    }
+                    entries={buildHorarioUnificado(vistaPrevia)}
                     diasSemana={DIAS_SEMANA}
                     horas={HORAS}
                     hideEmptyHours
-                    obtenerColorAsignatura={obtenerColorAsignatura}
+                    obtenerColorAsignatura={() => COLOR_HORARIO.mantener}
                   />
                 </div>
               </div>
 
-              {/* Acciones de validación */}
               {solicitud.estado === "pendiente" && (
                 <div className="review-form">
+                  <textarea
+                    className="observacion-input"
+                    placeholder="Observación al rechazar (obligatoria)…"
+                    value={observacion}
+                    onChange={(e) => setObservacion(e.target.value)}
+                    rows="2"
+                  />
                   <div className="review-buttons">
                     <button
+                      type="button"
                       className="btn-approve"
                       onClick={handleAprobar}
                       disabled={procesando}
                     >
                       {procesando ? (
                         <>
-                          <FaSpinner className="spinner-small" /> Procesando...
+                          <FaSpinner className="spinner-small" /> Procesando…
                         </>
                       ) : (
                         <>
-                          <FaCheckCircle /> Aprobar solicitud
+                          <FaCheckCircle /> Aprobar
                         </>
                       )}
                     </button>
                     <button
+                      type="button"
                       className="btn-reject"
                       onClick={() => {
                         if (!observacion.trim()) {
@@ -741,22 +582,15 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
                     >
                       {procesando ? (
                         <>
-                          <FaSpinner className="spinner-small" /> Procesando...
+                          <FaSpinner className="spinner-small" /> Procesando…
                         </>
                       ) : (
                         <>
-                          <FaTimesCircle /> Rechazar solicitud
+                          <FaTimesCircle /> Rechazar
                         </>
                       )}
                     </button>
                   </div>
-                  <textarea
-                    className="observacion-input"
-                    placeholder="Observación (obligatoria si se rechaza). Indica al estudiante el motivo de tu decisión..."
-                    value={observacion}
-                    onChange={(e) => setObservacion(e.target.value)}
-                    rows="3"
-                  />
                 </div>
               )}
             </>

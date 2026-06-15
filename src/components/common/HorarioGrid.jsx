@@ -10,6 +10,8 @@ import React from 'react';
 // - showHorario: boolean
 // - hideEmptyHours: boolean
 // - obtenerColorAsignatura: optional function(codigo) -> color
+// - obtenerColorEntrada: optional function(entry) -> color (tiene prioridad sobre color en entry)
+// - entry.color: color fijo opcional por bloque
 
 function formatearHora(h) {
   if (!h) return '';
@@ -28,7 +30,7 @@ function obtenerPosicionHorario(horaInicio, horaFin) {
   return { duracionMinutos: dur, offsetDentroHora };
 }
 
-export default function HorarioGrid({ entries = [], diasSemana = ['LUNES','MARTES','MIERCOLES','JUEVES','VIERNES','SABADO','DOMINGO'], horas = Array.from({length:16},(_,i)=>7+i), showHorario = true, hideEmptyHours = false, obtenerColorAsignatura = () => '#6b7280' }) {
+export default function HorarioGrid({ entries = [], diasSemana = ['LUNES','MARTES','MIERCOLES','JUEVES','VIERNES','SABADO','DOMINGO'], horas = Array.from({length:16},(_,i)=>7+i), showHorario = true, hideEmptyHours = false, obtenerColorAsignatura = () => '#6b7280', obtenerColorEntrada = null }) {
   if (!showHorario) {
     return <div className="horario-collapsed">Horario oculto. Pulsa "Mostrar horario" para expandir.</div>;
   }
@@ -87,12 +89,19 @@ export default function HorarioGrid({ entries = [], diasSemana = ['LUNES','MARTE
 
                     const bloqueAltura = Math.max(pos.duracionMinutos - 4, 28);
                     const bloqueTop = 4 + Math.min(pos.offsetDentroHora, 52);
+                    const blockColor = h.color
+                      || (typeof obtenerColorEntrada === 'function' ? obtenerColorEntrada(h) : null)
+                      || obtenerColorAsignatura(h.codigo || h.asignatura_codigo || h.codigoAsignatura);
+                    const blockClass = [
+                      'horario-block',
+                      h.cambio ? `horario-block--${h.cambio}` : '',
+                    ].filter(Boolean).join(' ');
                     return (
                       <div
                         key={idx}
-                        className="horario-block"
+                        className={blockClass}
                         style={{
-                          backgroundColor: obtenerColorAsignatura(h.codigo || h.asignatura_codigo || h.codigoAsignatura),
+                          backgroundColor: blockColor,
                           height: `${bloqueAltura}px`,
                           top: `${bloqueTop}px`,
                         }}
