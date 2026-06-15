@@ -30,26 +30,102 @@ const parseJsonArray = (val) => {
   return [];
 };
 
+const normalizarHorarios = (horarios) =>
+  (horarios || []).map((h) => ({
+    ...h,
+    dia: (h.dia || "").trim().toUpperCase(),
+    hora_inicio: String(h.hora_inicio || "").slice(0, 8),
+    hora_fin: String(h.hora_fin || "").slice(0, 8),
+  }));
+
 const materiaToEntry = (m) => ({
-  asignatura: m.nombre || m.codigo,
-  codigo: m.codigo,
-  grupoCodigo: m.grupo_codigo,
+  asignatura: m.nombre || m.asignatura_nombre || m.codigo || m.asignatura_codigo,
+  codigo: m.codigo || m.asignatura_codigo,
+  grupoCodigo: m.grupo_codigo || m.grupoCodigo,
   docente: m.docente,
-  horarios: m.horarios || [],
+  horarios: normalizarHorarios(m.horarios),
 });
 
-const etiquetaMateria = (g) => {
-  const nombre = (g.asignatura_nombre || g.nombre || "").trim();
-  const codigo = (g.asignatura_codigo || g.codigo || "").trim();
-  if (nombre && codigo && nombre.toLowerCase() !== codigo.toLowerCase()) {
-    return `${nombre} (${codigo})`;
+const grupoSolicitudToEntry = (g) =>
+  materiaToEntry({
+    nombre: g.asignatura_nombre,
+    codigo: g.asignatura_codigo,
+    grupo_codigo: g.grupo_codigo,
+    horarios: g.horarios,
+  });
+
+const esVistaHistorial = (vistaPrevia) =>
+  Boolean(vistaPrevia?.es_historial || (vistaPrevia?.estado && vistaPrevia.estado !== "pendiente"));
+
+const buildHorarioSolicitado = (vistaPrevia) => {
+  const retirarIds = new Set((vistaPrevia.materias_retiradas || []).map((m) => m.grupo_id));
+  const entries = [];
+
+  (vistaPrevia.matricula_actual || []).forEach((m) => {
+    if (retirarIds.has(m.grupo_id)) {
+      entries.push({ ...materiaToEntry(m), cambio: "retirar", color: COLOR_HORARIO.retirar });
+    }
+  });
+
+  (vistaPrevia.matricula_actual || []).forEach((m) => {
+    if (!retirarIds.has(m.grupo_id)) {
+      entries.push({ ...materiaToEntry(m), cambio: "mantener" });
+    }
+  });
+
+  (vistaPrevia.materias_agregar || []).forEach((m) => {
+    entries.push({
+      ...grupoSolicitudToEntry(m),
+      cambio: "agregar",
+      color: COLOR_HORARIO.agregar,
+    });
+  });
+
+  return entries;
+};
+
+const buildHorarioHistorial = (vistaPrevia) => {
+  if (vistaPrevia.estado === "rechazada") {
+    return buildHorarioSolicitado(vistaPrevia);
   }
-  return nombre || codigo || "Asignatura";
+
+  const agregarIds = new Set((vistaPrevia.materias_agregar || []).map((g) => g.grupo_id));
+  const matriculaIds = new Set((vistaPrevia.matricula_actual || []).map((m) => m.grupo_id));
+  const entries = [];
+
+  (vistaPrevia.materias_retiradas || []).forEach((m) => {
+    entries.push({
+      ...grupoSolicitudToEntry(m),
+      cambio: "retirar",
+      color: COLOR_HORARIO.retirar,
+    });
+  });
+
+  (vistaPrevia.matricula_actual || []).forEach((m) => {
+    const fueAgregada = agregarIds.has(m.grupo_id);
+    entries.push({
+      ...materiaToEntry(m),
+      cambio: fueAgregada ? "agregar" : "mantener",
+      ...(fueAgregada ? { color: COLOR_HORARIO.agregar } : {}),
+    });
+  });
+
+  (vistaPrevia.materias_agregar || []).forEach((m) => {
+    if (!matriculaIds.has(m.grupo_id)) {
+      entries.push({
+        ...grupoSolicitudToEntry(m),
+        cambio: "agregar",
+        color: COLOR_HORARIO.agregar,
+      });
+    }
+  });
+
+  return entries;
 };
 
 const buildHorarioUnificado = (vistaPrevia) => {
   if (!vistaPrevia) return [];
-  if (vistaPrevia.es_historial) {
+  if (esVistaHistorial(vistaPrevia)) {
     return buildHorarioHistorial(vistaPrevia);
   }
   const retirarIds = new Set((vistaPrevia.materias_retiradas || []).map((m) => m.grupo_id));
@@ -73,37 +149,13 @@ const buildHorarioUnificado = (vistaPrevia) => {
   return entries;
 };
 
-const buildHorarioHistorial = (vistaPrevia) => {
-  if (vistaPrevia.estado === "rechazada") {
-    return (vistaPrevia.matricula_actual || []).map((m) => materiaToEntry(m));
+const etiquetaMateria = (g) => {
+  const nombre = (g.asignatura_nombre || g.nombre || "").trim();
+  const codigo = (g.asignatura_codigo || g.codigo || "").trim();
+  if (nombre && codigo && nombre.toLowerCase() !== codigo.toLowerCase()) {
+    return `${nombre} (${codigo})`;
   }
-
-  const agregarIds = new Set((vistaPrevia.materias_agregar || []).map((g) => g.grupo_id));
-  const entries = [];
-
-  (vistaPrevia.materias_retiradas || []).forEach((m) => {
-    entries.push({
-      ...materiaToEntry({
-        nombre: m.asignatura_nombre,
-        codigo: m.asignatura_codigo,
-        grupo_codigo: m.grupo_codigo,
-        horarios: m.horarios,
-      }),
-      cambio: "retirar",
-      color: COLOR_HORARIO.retirar,
-    });
-  });
-
-  (vistaPrevia.matricula_actual || []).forEach((m) => {
-    const fueAgregada = agregarIds.has(m.grupo_id);
-    entries.push({
-      ...materiaToEntry(m),
-      cambio: fueAgregada ? "agregar" : "mantener",
-      ...(fueAgregada ? { color: COLOR_HORARIO.agregar } : {}),
-    });
-  });
-
-  return entries;
+  return nombre || codigo || "Asignatura";
 };
 
 const formatFecha = (fecha) => {
