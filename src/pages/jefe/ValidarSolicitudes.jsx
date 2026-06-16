@@ -158,6 +158,18 @@ const etiquetaMateria = (g) => {
   return nombre || codigo || "Asignatura";
 };
 
+const getInicial = (nombre) => {
+  const n = (nombre || "?").trim();
+  return n.charAt(0).toUpperCase();
+};
+
+const FILTROS = [
+  { id: "todos", label: "Todos" },
+  { id: "pendiente", label: "Pendientes" },
+  { id: "aprobada", label: "Aprobadas" },
+  { id: "rechazada", label: "Rechazadas" },
+];
+
 const formatFecha = (fecha) => {
   if (!fecha) return null;
   return new Date(fecha).toLocaleDateString("es-ES", {
@@ -296,41 +308,37 @@ const ValidarSolicitudes = () => {
 
   return (
     <div className="validar-solicitudes-container">
-      <div className="validar-header">
-        <div className="header-logo-title">
-          <div className="udc-logo-container">
-            <img 
-              src="/logo-udc.png" 
-              alt="Logo Universidad" 
-              className="udc-logo"
-            />
-          </div>
+      <header className="validar-header">
+        <div className="validar-header-top">
           <div>
-            <h1 className="page-title">Validar Solicitudes de Modificación</h1>
-            <p className="page-subtitle">
-              Una solicitud, un horario. Verde agrega, rojo retira.
-            </p>
+            <h1>Validar modificaciones</h1>
+            <p>Revisa solicitudes de cambio de matrícula. Verde agrega, rojo retira.</p>
+          </div>
+          <div className="validar-leyenda" aria-hidden="true">
+            <span><i className="leyenda-dot agregar" /> Agrega</span>
+            <span><i className="leyenda-dot retirar" /> Retira</span>
+            <span><i className="leyenda-dot neutral" /> Sin cambio</span>
           </div>
         </div>
 
-        {/* Filtro de estado */}
-        <div className="filtros">
-          <label className="filtro-label">Filtrar por estado:</label>
-          <select
-            className="filtro-select"
-            value={filtroEstado}
-            onChange={(e) => {
-              setFiltroEstado(e.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="todos">Todos</option>
-            <option value="pendiente">Pendientes</option>
-            <option value="aprobada">Aprobadas</option>
-            <option value="rechazada">Rechazadas</option>
-          </select>
+        <div className="filtros-tabs" role="tablist" aria-label="Filtrar solicitudes">
+          {FILTROS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              role="tab"
+              aria-selected={filtroEstado === f.id}
+              className={`filtro-tab${filtroEstado === f.id ? " active" : ""}`}
+              onClick={() => {
+                setFiltroEstado(f.id);
+                setPage(1);
+              }}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
-      </div>
+      </header>
 
       {/* Mensajes de estado */}
       {error && (
@@ -365,25 +373,27 @@ const ValidarSolicitudes = () => {
         </div>
       )}
       {pagination.total_pages > 1 && (
-        <div style={{ display: "flex", justifyContent: "center", gap: "0.75rem", marginTop: "1.25rem" }}>
+        <nav className="pagination-bar" aria-label="Paginación">
           <button
+            type="button"
             className="btn-review"
             onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
             disabled={!pagination.has_prev || loading}
           >
             Anterior
           </button>
-          <span style={{ alignSelf: "center" }}>
+          <span>
             Página {pagination.page} de {pagination.total_pages}
           </span>
           <button
+            type="button"
             className="btn-review"
             onClick={() => setPage((prev) => prev + 1)}
             disabled={!pagination.has_next || loading}
           >
             Siguiente
           </button>
-        </div>
+        </nav>
       )}
     </div>
   );
@@ -492,34 +502,51 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
   const esHistorial = solicitud.estado !== "pendiente" || vistaPrevia?.es_historial;
   const fechaRevision = vistaPrevia?.fecha_revision || solicitud.fecha_revision;
   const observacionHistorial = vistaPrevia?.observacion || solicitud.observacion;
+  const nAgregar = gruposAAgregar.length;
+  const nRetirar = gruposARetirar.length;
 
   return (
-    <article className={`solicitud-card ${solicitud.estado}`}>
+    <article className={`solicitud-card ${solicitud.estado}${mostrarRevision ? " expandida" : ""}`}>
       <header className="solicitud-header">
+        <div className="solicitud-avatar" aria-hidden="true">
+          {getInicial(nombreEst)}
+        </div>
         <div className="solicitud-header-main">
           <h3 className="solicitud-estudiante">{nombreEst}</h3>
-          <p className="solicitud-codigo">{codigoEst}</p>
-          <time className="solicitud-fecha">
-            {new Date(solicitud.fecha_solicitud).toLocaleDateString("es-ES", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-            })}
-          </time>
+          <div className="solicitud-meta">
+            <span>{codigoEst}</span>
+            <span className="solicitud-meta-sep">·</span>
+            <time dateTime={solicitud.fecha_solicitud}>
+              {new Date(solicitud.fecha_solicitud).toLocaleDateString("es-ES", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+            </time>
+          </div>
+          {!mostrarRevision && (nAgregar > 0 || nRetirar > 0) && (
+            <div className="solicitud-resumen-cambios">
+              {nAgregar > 0 && (
+                <span className="resumen-chip agregar">+{nAgregar} agregar</span>
+              )}
+              {nRetirar > 0 && (
+                <span className="resumen-chip retirar">−{nRetirar} retirar</span>
+              )}
+            </div>
+          )}
         </div>
-        {getEstadoBadge()}
+        <div className="solicitud-header-actions">
+          {getEstadoBadge()}
+          {!mostrarRevision && (
+            <button type="button" className="btn-review" onClick={toggleRevision} disabled={procesando}>
+              {solicitud.estado === "pendiente" ? "Revisar" : "Historial"}
+            </button>
+          )}
+        </div>
       </header>
 
       {solicitud.estado === "rechazada" && observacionHistorial && !mostrarRevision && (
         <p className="observacion-box">{observacionHistorial}</p>
-      )}
-
-      {!mostrarRevision && (
-        <footer className="solicitud-footer">
-          <button type="button" className="btn-review" onClick={toggleRevision} disabled={procesando}>
-            {solicitud.estado === "pendiente" ? "Revisar solicitud" : "Ver historial"}
-          </button>
-        </footer>
       )}
 
       {mostrarRevision && (
@@ -549,100 +576,119 @@ const SolicitudCard = ({ solicitud, onValidar, procesando }) => {
                 </p>
               )}
 
-              <section className="estudiante-panel" aria-label="Información del estudiante">
-                <dl className="estudiante-datos">
-                  <div>
-                    <dt>Semestre</dt>
-                    <dd>{est?.semestre ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>Periodo</dt>
-                    <dd>
-                      {vistaPrevia.periodo
-                        ? `${vistaPrevia.periodo.year}-${vistaPrevia.periodo.semestre}`
-                        : "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{esHistorial ? "Créditos actuales" : "Créditos"}</dt>
-                    <dd>
-                      {creditos
-                        ? esHistorial
-                          ? `${creditos.inscritos_actual}`
-                          : `${creditos.inscritos_actual} → ${creditos.inscritos_proyectado}`
-                        : "—"}
-                    </dd>
-                  </div>
-                  {est?.promedio != null && (
-                    <div>
-                      <dt>Promedio</dt>
-                      <dd>{Number(est.promedio).toFixed(2)}</dd>
-                    </div>
-                  )}
-                </dl>
-              </section>
-
-              {(() => {
-                const itemsAgregar = vistaPrevia.materias_agregar?.length
-                  ? vistaPrevia.materias_agregar
-                  : gruposAAgregar;
-                const itemsRetirar = vistaPrevia.materias_retiradas?.length
-                  ? vistaPrevia.materias_retiradas
-                  : gruposARetirar;
-                if (itemsAgregar.length === 0 && itemsRetirar.length === 0) return null;
-                return (
-                  <section
-                    className="cambios-panel"
-                    aria-label={esHistorial ? "Historial de cambios" : "Cambios solicitados"}
-                  >
-                    {esHistorial && (
-                      <p className="cambios-panel-titulo">
-                        {solicitud.estado === "aprobada" ? "Cambios realizados" : "Cambios solicitados"}
-                      </p>
-                    )}
-                    {itemsAgregar.map((g, i) => (
-                      <p key={`a-${i}`} className="cambio-texto agregar">
-                        + {etiquetaMateria(g)}
-                        {g.grupo_codigo ? ` · ${g.grupo_codigo}` : ""}
-                      </p>
-                    ))}
-                    {itemsRetirar.map((g, i) => (
-                      <p key={`r-${i}`} className="cambio-texto retirar">
-                        − {etiquetaMateria(g)}
-                        {g.grupo_codigo ? ` · ${g.grupo_codigo}` : ""}
-                      </p>
-                    ))}
+              <div className="review-layout">
+                <div className="review-col-info">
+                  <section className="estudiante-panel" aria-label="Información del estudiante">
+                    <dl className="estudiante-datos">
+                      <div>
+                        <dt>Semestre</dt>
+                        <dd>{est?.semestre ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt>Periodo</dt>
+                        <dd>
+                          {vistaPrevia.periodo
+                            ? `${vistaPrevia.periodo.year}-${vistaPrevia.periodo.semestre}`
+                            : "—"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>{esHistorial ? "Créditos" : "Créditos"}</dt>
+                        <dd>
+                          {creditos
+                            ? esHistorial
+                              ? `${creditos.inscritos_actual}`
+                              : `${creditos.inscritos_actual} → ${creditos.inscritos_proyectado}`
+                            : "—"}
+                        </dd>
+                      </div>
+                      {est?.promedio != null && (
+                        <div>
+                          <dt>Promedio</dt>
+                          <dd>{Number(est.promedio).toFixed(2)}</dd>
+                        </div>
+                      )}
+                    </dl>
                   </section>
-                );
-              })()}
 
-              {esHistorial && solicitud.estado === "rechazada" && observacionHistorial && (
-                <p className="observacion-box">{observacionHistorial}</p>
-              )}
+                  {(() => {
+                    const itemsAgregar = vistaPrevia.materias_agregar?.length
+                      ? vistaPrevia.materias_agregar
+                      : gruposAAgregar;
+                    const itemsRetirar = vistaPrevia.materias_retiradas?.length
+                      ? vistaPrevia.materias_retiradas
+                      : gruposARetirar;
+                    if (itemsAgregar.length === 0 && itemsRetirar.length === 0) return null;
+                    return (
+                      <section
+                        className="cambios-panel"
+                        aria-label={esHistorial ? "Historial de cambios" : "Cambios solicitados"}
+                      >
+                        <p className="cambios-panel-titulo">
+                          {esHistorial
+                            ? solicitud.estado === "aprobada"
+                              ? "Cambios realizados"
+                              : "Cambios solicitados"
+                            : "Cambios solicitados"}
+                        </p>
+                        <div className="cambios-lista">
+                          {itemsAgregar.map((g, i) => (
+                            <div key={`a-${i}`} className="cambio-chip agregar">
+                              <span className="cambio-chip-icon">+</span>
+                              <span>
+                                {etiquetaMateria(g)}
+                                {g.grupo_codigo && (
+                                  <span className="cambio-chip-grupo">{g.grupo_codigo}</span>
+                                )}
+                              </span>
+                            </div>
+                          ))}
+                          {itemsRetirar.map((g, i) => (
+                            <div key={`r-${i}`} className="cambio-chip retirar">
+                              <span className="cambio-chip-icon">−</span>
+                              <span>
+                                {etiquetaMateria(g)}
+                                {g.grupo_codigo && (
+                                  <span className="cambio-chip-grupo">{g.grupo_codigo}</span>
+                                )}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })()}
 
-              <section
-                className="horario-panel"
-                aria-label={esHistorial ? "Horario resultante" : "Horario con cambios"}
-              >
-                <div className="horario-grid-wrapper">
-                  <HorarioGrid
-                    entries={buildHorarioUnificado(vistaPrevia)}
-                    diasSemana={DIAS_SEMANA}
-                    horas={HORAS}
-                    hideEmptyHours
-                    obtenerColorAsignatura={() => "transparent"}
-                  />
+                  {esHistorial && solicitud.estado === "rechazada" && observacionHistorial && (
+                    <p className="observacion-box">{observacionHistorial}</p>
+                  )}
                 </div>
-              </section>
+
+                <div className="review-col-horario">
+                  <section className="horario-panel" aria-label={esHistorial ? "Horario resultante" : "Horario con cambios"}>
+                    <p className="horario-panel-titulo">Horario</p>
+                    <div className="horario-grid-wrapper">
+                      <HorarioGrid
+                        entries={buildHorarioUnificado(vistaPrevia)}
+                        diasSemana={DIAS_SEMANA}
+                        horas={HORAS}
+                        hideEmptyHours
+                        obtenerColorAsignatura={() => "transparent"}
+                      />
+                    </div>
+                  </section>
+                </div>
+              </div>
 
               {solicitud.estado === "pendiente" && (
                 <footer className="review-form">
+                  <p className="review-form-hint">Para rechazar, escribe el motivo abajo.</p>
                   <textarea
                     className="observacion-input"
                     placeholder="Motivo del rechazo…"
                     value={observacion}
                     onChange={(e) => setObservacion(e.target.value)}
-                    rows="2"
+                    rows="3"
                   />
                   <div className="review-buttons">
                     <button type="button" className="btn-approve" onClick={handleAprobar} disabled={procesando}>

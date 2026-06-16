@@ -101,10 +101,6 @@
   .dashboard-grid {
     grid-template-columns: repeat(5, 1fr) !important;
   }
-
-  .solicitudes-grid {
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr)) !important;
-  }
 }
 
 
